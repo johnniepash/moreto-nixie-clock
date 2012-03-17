@@ -26,18 +26,13 @@ typedef enum _mode
 	HUMID,
 } display_mode;
 
-// Enum that holds the possible fields that can be adjusted. Only one active at a time.
+// Enum that holds the current digits that are being set.
 typedef enum _set
 {
 	OFF,
-	SECS,
-	MINS,
-	HOURS,
-	DAY_WEEK,
-	DAYS,
-	MONTHS,
-	YEARS,
-} set_parameter;
+	DIGIT_MIN,
+	DIGIT_HOUR,
+} set_digit;
 
 typedef struct
 {
