@@ -20,7 +20,8 @@
 #define PCF8574_2	0x72	// I2C address of PCF8574 I/O expander 2. 01000010 0x72
 #define PCF8574_3	0x74	// I2C address of PCF8574 I/O expander 3. 01000100 0x74
 #define XTAL		8000000L    // Crystal frequency in Hz
-#define TIMER_FREQ	50			// timer1 frequency in Hz
+#define TIMER_FREQ	10			// timer1 frequency in Hz
+#define MODE_CHANGE_SECONDS	3
 
 #define NIXIE_DEGREE 0x1F
 #define NIXIE_PERCENT 0x2F
@@ -74,19 +75,27 @@ void delay_ms(uint16_t ms);
 volatile char int0_flag = 0;
 volatile char int1_flag = 0;
 volatile char timer1A_flag = 0;
+volatile char change_mode_flag = 0;
 
 unsigned char compare[CHMAX];
 volatile unsigned char compbuff[CHMAX];
 
-int r_val = 0x00;
-int g_val = 0x55;
-int b_val = 0xAA;
-float dim = 1;
-
 // External interrupt 1 ISR (fired by the DS1307 square wave output):
 ISR(SIG_INTERRUPT1) 
-{ 
+{
+	//static unsigned char delay_counter = 0x00;
 	int1_flag = 1;	// Set the flag (the processing is done in main function).
+	//if (delay_counter < MODE_CHANGE_SECONDS)
+	//{
+		//delay_counter++;
+	//}
+	//else
+	//{
+		//change_mode_flag = 1;
+		//delay_counter = 0x00;
+	//}
+	
+	
 }
 
 // External interrupt 0 ISR (fired by the PCF8574 with MC14490 key debouncer):
@@ -184,6 +193,14 @@ void read_date_DS1307(my_time_t *my_time)
 	i2c_stop();
 }
 
+void DS1307_write_byte(uint8_t addr, uint8_t byte)
+{
+	i2c_start_wait(DS1307+I2C_WRITE);	// set device address and write mode
+	i2c_write(addr);					// write address
+	i2c_write(byte);
+	i2c_stop();
+}
+
 // Update the number shown by nixies accordingly with the selected mode.
 void update_nixies(my_time_t *my_time, display_mode current_mode)
 {
@@ -202,6 +219,7 @@ void update_nixies(my_time_t *my_time, display_mode current_mode)
 			PCF8574_write(PCF8574_2,my_time->min);
 			break;
 		case MONTH_DAY:
+		
 			output_high(PORTD,LED);
 			output_low(PORTB, LED_SYMB);
 			PCF8574_write(PCF8574_1,my_time->day);
@@ -235,6 +253,61 @@ void update_nixies(my_time_t *my_time, display_mode current_mode)
 				
 }
 
+// Convert Decimal to Binary Coded Decimal (BCD)
+uint8_t dec2bcd(uint8_t num)
+{
+  return ((num/10 * 16) + (num % 10));
+}
+// Convert Binary Coded Decimal (BCD) to Decimal
+uint8_t bcd2dec(uint8_t num)
+{
+  return ((num/16 * 10) + (num % 16));
+}
+
+uint8_t inc_BCD_2digits(uint8_t BCD_value, uint8_t top_value)
+{
+	uint8_t value;
+	value = bcd2dec(BCD_value);
+	value++;
+	if (value >= top_value)
+	{
+		return 0;
+	}
+	return dec2bcd(value);
+}
+
+/* Function to increment or decrement a field in my_time_t structure.
+ * 
+ * addr: DS1307 address of the parameter being incremented or decremented
+ */
+void inc_dec_time_DS1307(my_time_t *my_time, uint8_t addr)
+{
+	uint8_t value_to_write = 0;
+	switch (addr)
+	{
+		case ADDR_SECS:
+			break;
+		case ADDR_MINS:
+			value_to_write = inc_BCD_2digits(my_time->min,60);
+			break;
+		case ADDR_HOURS:
+			value_to_write = inc_BCD_2digits(my_time->hour,24); // Set in 24h mode only.
+			break;
+		case ADDR_DAYS:
+			value_to_write = inc_BCD_2digits(my_time->day,32);
+			break;
+		case ADDR_MONTHS:
+			value_to_write = inc_BCD_2digits(my_time->month,12);
+			break;
+		case ADDR_YEAR:
+			value_to_write = inc_BCD_2digits(my_time->year,100);
+			break;
+		default:
+			return;
+			break;
+	}
+	DS1307_write_byte(addr,value_to_write);
+}
 
 int main(void)
 {
@@ -245,7 +318,7 @@ int main(void)
 	uint8_t PCF_data = 0x0F;
 	my_time_t clock1;
 	display_mode current_mode = HOUR_MIN;
-	set_parameter current_adjust = OFF;
+	set_digit current_adjust = OFF;
 	uint8_t adjust_addr = 0;	// DS1307 adjust address variable.
 	color led_color;
     uint8_t hue = 0;
@@ -253,17 +326,10 @@ int main(void)
 	hset(hue,&led_color);
 		
 	// Pin setup:
+	DDRB |= (1<<LED_HOUR)|(1<<LED_MIN)|(1<<LED_SYMB)|(1<<RED)|(1<<GREEN)|(1<<BLUE);	// Output pins
 	set_output(DDRD, LED);
-	set_output(DDRB, LED_HOUR);
-	set_output(DDRB, LED_MIN);
-	set_output(DDRB, LED_SYMB);
-	set_output(LED_DDR,RED);	// PWM
-	set_output(LED_DDR,GREEN);	// PWM
-	set_output(LED_DDR,BLUE);	// PWM
-
 	output_low(PORTB, LED_SYMB);
-	output_high(PORTB, LED_MIN);
-	output_high(PORTB, LED_HOUR);
+	PORTB |= (1<<LED_MIN)|(1<<LED_HOUR);	// Turn on RGB leds.
 
 	unsigned char i, pwm;
 	pwm = PWMDEFAULT;
@@ -280,8 +346,8 @@ int main(void)
 	TCCR0B = (1 << CS00);         // no prescaller (count to 0xFF). PWM freq = (Clock/256)/256. With 8MHz, PWM freq. is 122Hz.
 	TIMSK = (1 << TOIE0);         // enable overflow interrupt
 
-	TCCR1B = (1<<CS11) | (1<<WGM12);	// use CLK/8 prescale value, clear timer/counter on compareA match
-	OCR1A = ((XTAL/8/TIMER_FREQ) - 1 );	// preset timer1 high/low byte 
+	TCCR1B = (1<<CS11) | (1<<CS10) | (1<<WGM12);	// use CLK/64 prescale value, clear timer/counter on compareA match
+	OCR1A = ((XTAL/64/TIMER_FREQ) - 1 );	// preset timer1 high/low byte 
 	TIMSK  |= (1<<OCIE1A);				// enable Output Compare 1 overflow interrupt
 
 	//External interrupt setup:	
@@ -293,10 +359,11 @@ int main(void)
 	i2c_init();		// initialize I2C library
 
 	// Configuring DS1307:
-	i2c_start_wait(DS1307+I2C_WRITE);
-	i2c_write(CR);	// write control register address
-	i2c_write(SQW_OUT_1Hz);	// write control register value
-	i2c_stop();		// release bus.
+	DS1307_write_byte(CR,SQW_OUT_1Hz);
+	//i2c_start_wait(DS1307+I2C_WRITE);
+	//i2c_write(CR);	// write control register address
+	//i2c_write(SQW_OUT_1Hz);	// write control register value
+	//i2c_stop();		// release bus.
 	
 	sei();
 		
@@ -311,6 +378,18 @@ int main(void)
 
 			int1_flag = 0;
 			
+		}
+		if (change_mode_flag == 1) // MODE_CHANGE_SECONDS have passed.
+		{
+			if (current_mode < HUMID)
+			{
+				current_mode++;
+			}
+			else
+			{
+				current_mode = MIN_SEC;
+			}			
+			change_mode_flag = 0;
 		}
 		if (int0_flag == 1) // Some key was pressed, read it.
 		{
@@ -342,64 +421,79 @@ int main(void)
 					break;
 				case 2: // Key 2, adjust
 					current_adjust++;
-					switch (current_adjust)
+					if (current_adjust > DIGIT_HOUR)
 					{
-						case SECS:
-							current_mode = MIN_SEC;
-							// Switch on seconds RGB led with red color
-							output_low(PORTB, LED_HOUR);
-							output_high(PORTB, LED_MIN);
-							adjust_addr = ADDR_SECS;
-							break;
-						case MINS:
-							current_mode = HOUR_MIN;
-							// Switch on minutes RGB led with red color
-							output_low(PORTB, LED_HOUR);
-							output_high(PORTB, LED_MIN);
-							adjust_addr = ADDR_MINS;
-							break;
-						case HOURS:
-							current_mode = HOUR_MIN;
-							// Switch on hours RGB led with red color
-							output_high(PORTB, LED_HOUR);
-							output_low(PORTB, LED_MIN);							
-							adjust_addr = ADDR_HOURS;
-							break;
-						case DAYS:
-							current_mode = MONTH_DAY;
-							// Switch on days RGB led with red color
-							output_low(PORTB, LED_HOUR);
-							output_high(PORTB, LED_MIN);
-							adjust_addr = ADDR_DAYS;
-							break;
-						case MONTHS:
-							current_mode = MONTH_DAY;
-							// Switch on month RGB led with red color
-							output_high(PORTB, LED_HOUR);
-							output_low(PORTB, LED_MIN);		
-							adjust_addr = ADDR_MONTHS;
-							break;
-						case YEARS:
-							current_mode = YEAR;
-							// Switch on both leds RGB led with red color
-							output_high(PORTB, LED_HOUR);
-							output_high(PORTB, LED_MIN);		
-							adjust_addr = ADDR_YEAR;
-							break;		
-						default:
-							current_adjust = OFF;
-							current_mode = HOUR_MIN;
-							output_high(PORTB, LED_HOUR);
-							output_high(PORTB, LED_MIN);
-							break;	
-							// Switch on hours and minutes RGB led.							
+						current_adjust = OFF;
+						output_high(PORTB, LED_MIN);	// Turn on both RGB leds.
+						output_high(PORTB, LED_HOUR);
+						// Do other stuff to end adjust mode!!!!
 					}
-					break;					
+					if (current_adjust != OFF)
+					{
+						switch (current_mode)
+						{
+							case MIN_SEC:	// Seconds setting								
+								output_low(PORTB, LED_HOUR); // Switch on seconds RGB led with red color
+								output_high(PORTB, LED_MIN);
+								adjust_addr = ADDR_SECS;
+								current_adjust++;	// Skip next digit setting.
+								break;
+							case HOUR_MIN:
+								if (current_adjust == DIGIT_MIN)	// Minutes setting.
+								{
+									output_low(PORTB, LED_HOUR); // Turn off RGB led from Hours digits
+									output_high(PORTB, LED_MIN); // Turn on RGB led from Minutes digits.
+									adjust_addr = ADDR_MINS;
+								}
+								else
+								{
+									output_high(PORTB, LED_HOUR);	// Turn on RGB led from Hours digits
+									output_low(PORTB, LED_MIN);		// Turn off RGB led from Minutes digits.
+									adjust_addr = ADDR_HOURS;
+								}						
+								break;
+							case MONTH_DAY:
+								if (current_adjust == DIGIT_MIN)	// Days setting.
+								{
+									output_high(PORTB, LED_HOUR); // Turn off RGB led from Hours/Months digits
+									output_low(PORTB, LED_MIN); // Turn on RGB led from Minutes/Days digits.
+									adjust_addr = ADDR_DAYS;
+								}
+								else
+								{
+									output_low(PORTB, LED_HOUR);	// Turn on RGB led from Hours digits
+									output_high(PORTB, LED_MIN);		// Turn off RGB led from Minutes digits.
+									adjust_addr = ADDR_MONTHS;
+								}						
+								break;
+							case YEAR:
+								// Switch on both leds RGB led with red color
+								output_high(PORTB, LED_HOUR);
+								output_high(PORTB, LED_MIN);		
+								adjust_addr = ADDR_YEAR;
+								current_adjust++;	// Skip next digit setting.
+								break;		
+							default:
+								// Do nothing, for now.
+								break;								
+						}
+					}						
+					break;
+				case 4:	// Increment switch.
+					if (current_adjust != OFF)
+					{
+						inc_dec_time_DS1307(&clock1, adjust_addr);
+					}
+					break;
+				case 8:	// Increment switch.
+				
+					break;
 				default:
 					/* Your code here */
 					break;
-			}
+				}
 			readtime_DS1307(&clock1);
+			read_date_DS1307(&clock1);
 			update_nixies(&clock1,current_mode);
 			int0_flag = 0;
 		}
