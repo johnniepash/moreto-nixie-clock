@@ -43,8 +43,10 @@ typedef struct
 	uint8_t day;	// 
 	uint8_t month;
 	uint8_t year;	// 0 to 99, BCD sapareted by nibble.
-	uint16_t temperature;
-	uint16_t humidity; 
+	uint8_t temp_digit;
+	uint8_t temp_decimal;
+	uint8_t humid_digit; 
+	uint8_t humid_decimal; 
 } my_time_t;
 
 uint8_t calculate_hour_DS1307(uint8_t hours); // Calculate the digits from the hour, min and seconds, using the format of DS1307 RTC.

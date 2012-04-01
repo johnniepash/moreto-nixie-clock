@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 11.00
 # AvrStudio Solution File, Format Version 11.00
 Project("{D1100916-62DA-4D80-A9B4-55A1E7CCEEB3}") = "NixieClockV1", "NixieClockV1.avrgccproj", "{A1B825B5-45DF-4FE2-9C6C-4F74EC3D878C}"
 EndProject
-Project("{D1100916-62DA-4D80-A9B4-55A1E7CCEEB3}") = "TempSensorV1", "..\TempSensorV1\TempSensorV1.avrgccproj", "{5CA76CDF-60E5-47A4-BA6F-0A51F566B33B}"
-EndProject
 Global
 	GlobalSection(SubversionScc) = preSolution
 		Svn-Managed = True
@@ -19,10 +17,6 @@ Global
 		{A1B825B5-45DF-4FE2-9C6C-4F74EC3D878C}.Debug|AVR.Build.0 = Debug|AVR
 		{A1B825B5-45DF-4FE2-9C6C-4F74EC3D878C}.Release|AVR.ActiveCfg = Release|AVR
 		{A1B825B5-45DF-4FE2-9C6C-4F74EC3D878C}.Release|AVR.Build.0 = Release|AVR
-		{5CA76CDF-60E5-47A4-BA6F-0A51F566B33B}.Debug|AVR.ActiveCfg = Debug|AVR
-		{5CA76CDF-60E5-47A4-BA6F-0A51F566B33B}.Debug|AVR.Build.0 = Debug|AVR
-		{5CA76CDF-60E5-47A4-BA6F-0A51F566B33B}.Release|AVR.ActiveCfg = Release|AVR
-		{5CA76CDF-60E5-47A4-BA6F-0A51F566B33B}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
