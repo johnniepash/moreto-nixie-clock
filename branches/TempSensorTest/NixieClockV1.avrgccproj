@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectVersion>1.0</ProjectVersion>
     <ProjectGuid>{a1b825b5-45df-4fe2-9c6c-4f74ec3d878c}</ProjectGuid>
-    <avrdevice>ATtiny2313</avrdevice>
+    <avrdevice>ATmega88PA</avrdevice>
     <avrdeviceseries>none</avrdeviceseries>
     <OutputFile>$(MSBuildProjectName).elf</OutputFile>
     <OutputDirectory>$(MSBuildProjectDirectory)\$(Configuration)</OutputDirectory>
@@ -13,6 +13,7 @@
     <AssemblyName>NixieClockV1</AssemblyName>
     <Name>NixieClockV1</Name>
     <RootNamespace>NixieClockV1</RootNamespace>
+    <avrtool />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <ToolchainSettings>
@@ -66,6 +67,18 @@
     <Compile Include="clock.h">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="common_files\OWIcrc.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="common_files\OWIcrc.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="common_files\OWIdefs.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="common_files\OWIDeviceSpecific.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="i2cmaster.h">
       <SubType>compile</SubType>
     </Compile>
@@ -75,12 +88,24 @@
     <Compile Include="NixieClockV1.c">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="OWIInterruptDriven.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="OWIIntFunctions.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="OWIIntFunctions.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="RGBled.c">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="RGBled.h">
       <SubType>compile</SubType>
     </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="common_files" />
   </ItemGroup>
   <Import Project="$(AVRSTUDIO_EXE_PATH)\\Vs\\AvrGCC.targets" />
 </Project>
