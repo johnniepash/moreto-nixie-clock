@@ -1,7 +1,20 @@
+/* DHT22.c
+ *
+ * DHT22 sensor AVR library
+ *
+ * Code by funkytransistor published at AVR Freaks forum:
+ * http://www.avrfreaks.net/index.php?name=PNphpBB2&file=viewtopic&p=974797
+ *
+ * Modified by Miguel Moreto in order to return four values:
+ *   Integer part or temperature
+ *   Decimal part of temperature
+ *   Integer part of humidity
+ *   Decimal part of humidity
+ * 
+ * Miguel Moreto, Brazil, 2012.
+ */
 #include "DHT22.h"
 
-
-//DHT22_ERROR_t readDHT22( uint8_t *dht_humidity_now, float *dht_temperature_now )
 DHT22_ERROR_t readDHT22(int8_t *temp_integral, uint8_t *temp_decimal, uint8_t *hum_integral,uint8_t *hum_decimal)
 {
 
@@ -11,9 +24,6 @@ DHT22_ERROR_t readDHT22(int8_t *temp_integral, uint8_t *temp_decimal, uint8_t *h
 	int rawTemperature = 0;
 	uint8_t checkSum = 0, csPart1, csPart2, csPart3, csPart4;
 	int i;
-
-
-
 
 	// Pin needs to start HIGH, wait until it is HIGH with a timeout
 	retryCount = 0;
@@ -133,16 +143,12 @@ DHT22_ERROR_t readDHT22(int8_t *temp_integral, uint8_t *temp_decimal, uint8_t *h
 		// raw data to sensor values
 		*hum_integral = (uint8_t)(rawHumidity / 10);
 		*hum_decimal = (uint8_t)(rawHumidity % 10);
-		
-		
-		//*dht_humidity_now = ( (rawHumidity + 5) / 10 );
 
 		if(rawTemperature & 0x8000)	// Check if temperature is below zero, non standard way of encoding negative numbers!
 		{
 			rawTemperature &= 0x7FFF; // Remove signal bit
 			*temp_integral = (int8_t)(rawTemperature / 10.0) * -1;
 			*temp_decimal = (uint8_t)(rawTemperature % 10);
-			//*dht_temperature_now = (rawTemperature / 10.0) * -1.0;
 		} else
 		{
 			*temp_integral = (int8_t)(rawTemperature / 10.0);
