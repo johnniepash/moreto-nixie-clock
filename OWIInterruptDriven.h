@@ -54,7 +54,7 @@
  *  a Baud rate of 9600. See data sheet for more information and 
  *  examples of Baud rate settings.
  */
-#define     OWI_UBRR_9600       103
+#define     OWI_UBRR_9600       416
 
 
 

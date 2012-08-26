@@ -15,10 +15,8 @@
 #include "i2cmaster.h"
 #include "clock.h"
 #include "RGBled.h"
+#include "DHT22.h"
 
-#include "OWIIntFunctions.h"
-#include "OWIInterruptDriven.h"
-#include ".\common_files\OWIcrc.h"
 
 #define DS1307		0xD0 	// I2C address of DS1307 11010000. Last zero is the R/W bit. 0x70
 #define PCF8574_1	0x70	// I2C address of PCF8574 I/O expander 1. 01000000 0x70
@@ -55,9 +53,6 @@
 #define NIXIE_m 0x06
 #define NIXIE_M 0x07
 
-#define RED PB0
-#define GREEN PB1
-#define BLUE PB2
 #define NEON1 PB6
 #define NEON2 PB7
 #define SW1 PD5
@@ -65,11 +60,14 @@
 #define SW3 PD7
 
 // Software PWM definitions:
+#define RED PC0
+#define GREEN PC1
+#define BLUE PC2
 #define CHMAX 3 // maximum number of PWM channels
 #define PWMDEFAULT 0x00 // default PWM value at start up for all channels
-#define PORTB_MASK  (1 << RED)|(1 << GREEN)|(1 << BLUE) // PWM pin Mask
-#define LED_PORT PORTB
-#define LED_DDR DDRB
+#define PWM_PORT_MASK  (1 << RED)|(1 << GREEN)|(1 << BLUE) // PWM pin Mask
+#define LED_PORT PORTC
+#define LED_DDR DDRC
 
 
 // Some macros that make the code more readable
@@ -82,29 +80,15 @@
 
 void delay_ms(uint16_t ms);
 
-// Dallas one wire lib definitions:
-void OWI_StateMachine();
-
-// Defines used only in code example.
-#define OWI_STATE_IDLE                  0
-#define OWI_STATE_DETECT_PRESENCE1      1
-#define OWI_STATE_WAIT_FOR_CONVERSION1  2
-#define OWI_STATE_WAIT_FOR_CONVERSION2  3
-#define OWI_STATE_DETECT_PRESENCE2      4
-#define OWI_STATE_READ_SCRATCHPAD       5
-#define OWI_STATE_CHECK_CRC             6
 
 #define FALSE       0
 #define TRUE        1
 
-#define DS1820_START_CONVERSION         0x44    //!< DS1820 start conversion command
-#define DS1820_READ_SCRATCHPAD          0xbe    //!< DS1820 Read scratchpad command
 
-extern OWIflags OWIStatus;
-extern unsigned char *OWIDataBuffer;
 
 signed int temperature = 100;
-const uint8_t temp_decimal[] = {00,06,12,19,25,31,37,44,50,56,62,69,75,81,87,94,00};
+unsigned int humidity = 0;
+//const uint8_t temp_decimal[] = {00,06,12,19,25,31,37,44,50,56,62,69,75,81,87,94,00};
 
 // Global variables:
 volatile unsigned char int0_flag = 0;
@@ -147,7 +131,7 @@ ISR(PCINT2_vect)
 }
 
 
-ISR(TIMER0_OVF_vect)
+ISR(TIMER0_OVF_vect) // Update RGB Led pins
 {
 	//static unsigned char pinlevelB=PORTB_MASK;	// Initially all pwm pins are 1.
 	static unsigned char softcount=0xFF;
@@ -161,23 +145,23 @@ ISR(TIMER0_OVF_vect)
 		compare[1] = compbuff[1];
 		compare[2] = compbuff[2];
 		//pinlevelB = PORTB_MASK;     // set all port pins high
-		PORTB |= PORTB_MASK;
+		LED_PORT |= PWM_PORT_MASK;
 	}
 	// clear port pin on compare match (executed on next interrupt)
 	if(compare[0] == softcount)
 	{
 		//pinlevelB &= ~(1 << RED);	// Red LED turn off.
-		PORTB &= ~(1 << RED);	// Red LED turn off.
+		LED_PORT &= ~(1 << RED);	// Red LED turn off.
 	}
 	if(compare[1] == softcount)
 	{
 		//pinlevelB &= ~(1 << GREEN);	// Green LED turn off.
-		PORTB &= ~(1 << GREEN);	// Green LED turn off.
+		LED_PORT &= ~(1 << GREEN);	// Green LED turn off.
 	}		
 	if(compare[2] == softcount)
 	{
 		//pinlevelB &= ~(1 << BLUE);	// Blue LED turn off.
-		PORTB &= ~(1 << BLUE);	// Blue LED turn off.
+		LED_PORT &= ~(1 << BLUE);	// Blue LED turn off.
 	}
 }
 
@@ -351,8 +335,8 @@ void update_nixies(my_time_t *my_time, display_mode current_mode)
 			break;
 		case HUMID:
 			output_high(PORTB,NEON1);
-			PCF8574_write(PCF8574_1,0x00);  // Temp variable
-			PCF8574_write(PCF8574_2,0x00);  // Temp variable
+			PCF8574_write(PCF8574_1,dec2bcd(my_time->humid_digit));
+			PCF8574_write(PCF8574_2,dec2bcd(my_time->humid_decimal));
 			PCF8574_write(PCF8574_3,leds_on|(1<<RGB_LED_SYMB)|(1<<NIXIE_PERCENT));
 			break;
 		default:
@@ -373,15 +357,30 @@ int main(void)
 	// Variables:
 	//uint16_t a = 0;
 	my_time_t clock1;
+	
+	uint8_t temp1;
+	float temp2;
+	float temp;
+	int integertemp;
+	char decimal;
+	
+	//DHT22_status DHTstatus;
 	display_mode current_mode = TEMP;
 	set_digit current_adjust = OFF;
 	uint8_t adjust_addr = 0;	// DS1307 adjust address variable.
 	color led_color;
     uint8_t hue = 0;
 	hset(hue,&led_color);
-		
+
+	clock1.temp_decimal = 0;
+	clock1.temp_digit = 0;
+	clock1.humid_decimal = 0;
+	clock1.humid_digit = 0;
+
 	// Pin setup:
-	DDRB |= (1<<RED)|(1<<GREEN)|(1<<BLUE)|(1<<NEON1)|(1<<NEON2);	// Output pins of PortB
+	DDRB |= (1<<NEON1)|(1<<NEON2);	// Output pins of PortB
+	DDRC |= (1<<RED)|(1<<GREEN)|(1<<BLUE);	// Output pins of PortC
+	DDRD |= (1<<PD0)|(1<<PD1);
 
 	unsigned char i, pwm;
 	pwm = PWMDEFAULT;
@@ -399,7 +398,8 @@ int main(void)
 	//TCCR0A = 0x00;//(1<< WGM00);
 	TCCR0B = (1 << CS00);         // no prescaller (count to 0xFF). PWM freq = (Clock/256)/256. With 8MHz, PWM freq. is 122Hz.
 	TIMSK0 = (1 << TOIE0);         // enable overflow interrupt
-	// Timer 1 setup (temp use):
+
+	// Timer 1 setup (temp use, update RGB values):
 	TCCR1B = (1<<CS11) | (1<<CS10) | (1<<WGM12);	// use CLK/64 prescale value, clear timer/counter on compareA match
 	OCR1A = ((XTAL/64/TIMER_FREQ) - 1 );	// preset timer1 high/low byte 
 	TIMSK1 |= (1<<OCIE1A);				// enable Output Compare 1 overflow interrupt
@@ -414,6 +414,7 @@ int main(void)
 	PCMSK2 |= (1<<PCINT21)|(1<<PCINT22)|(1<<PCINT23);	// Enable PCINT 21 to 23 (keys)
 
 	i2c_init();		// initialize I2C library
+	//DHT22_Init();
 	
 	// Configuring DS1307:
 	DS1307_write_byte(CR,SQW_OUT_1Hz);
@@ -421,28 +422,38 @@ int main(void)
 	//i2c_write(CR);	// write control register address
 	//i2c_write(SQW_OUT_1Hz);	// write control register value
 	//i2c_stop();		// release bus.
-	
-	OWI_Init();
-	
+
 	sei();
 
-	//update_nixies(a);
     while(1)
     {
-
-		// If the 1-Wire(R) bus is not busy, run the state machine.
-		if (!OWIStatus.busy)
-		{
-			OWI_StateMachine();
-		}
-		
-		
+			
 		if (int0_flag == 1)	// One second has passed.
 		{
 			readtime_DS1307(&clock1);
-//			toggle(PORTB,NEON1);
-			clock1.temp_digit = (uint8_t)(temperature >> 4);
-			clock1.temp_decimal = temp_decimal[temperature & 0x000F];
+			//toggle(PORTB,NEON1);
+			DHT22_ERROR_t errorCode = readDHT22(&temp1, &temp2);
+			switch(errorCode)
+			{
+				case DHT_ERROR_NONE:
+					temp = temp2/(int)temp2; // this will provide you the decimal part.
+					decimal = (char)(temp*100); //this will give you decimal part converted to integer.
+					integertemp = (int)temp2; //get the integer part.
+				
+					clock1.humid_decimal = temp1;
+					clock1.temp_decimal = decimal;
+					clock1.temp_digit = (uint8_t)integertemp;
+					//temperature_now = temp2;	//global variable
+					break;
+				default:
+					break;
+			}	
+			//clock1.temp_digit = (uint8_t)(temperature >> 4);
+//			clock1.temp_digit = DHT22_GetTemperature();
+			//(uint8_t)(temperature >> 8);
+			//clock1.temp_decimal = temp_decimal[temperature & 0x000F];
+//			clock1.temp_decimal = 0;
+			//(uint8_t)(temperature & 0x00FF);
 			update_nixies(&clock1,current_mode);
 			int0_flag = 0;
 			
@@ -573,136 +584,4 @@ void delay_ms(uint16_t ms) {
     _delay_ms(1);
     ms--;
   }
-}
-
-/*! \brief  The state machine that controls communication on the 1-Wire bus
- *  
- *  This function is called from main every time the 1-Wire driver is not
- *  busy. The state machine will read the temperature from a DS1820 temperature
- *  sensor, crc check it, and put it in the global variable temperature if 
- *  everything is OK.
- */
-void OWI_StateMachine()
-{
-    static unsigned char state = OWI_STATE_IDLE;
-    static unsigned char buf[9];
-    unsigned char i;
-    unsigned char crc;
-    
-    // If an error has occurred since last time, clear all flags and
-    // return to idle state.
-    if (OWIStatus.error)
-    {
-        state = OWI_STATE_IDLE;
-        OWIStatus.allFlags = FALSE;
-    }
-    
-    switch (state)
-    {
-        case OWI_STATE_IDLE:
-        {
-            // Send reset signal and update state.
-            OWI_DetectPresence();
-            state = OWI_STATE_DETECT_PRESENCE1;
-            break;
-        }
-
-        case OWI_STATE_DETECT_PRESENCE1:
-        {
-            // If no presence was detected, go back to idle state.
-            if(OWIStatus.presenceDetected == FALSE)
-            {
-                state = OWI_STATE_IDLE;
-            }
-            // If presence was detected, send Skip ROM and Start conversion
-            // signals. 
-            else
-            {
-                buf[0] = OWI_ROM_SKIP;
-                buf[1] = DS1820_START_CONVERSION;
-                OWI_TransmitData(buf, 16);
-                state = OWI_STATE_WAIT_FOR_CONVERSION1;
-            }
-            break;
-        }
-
-        case OWI_STATE_WAIT_FOR_CONVERSION1:
-        {
-            // Receive one byte of data to check for completion of the 
-            // temperature conversion.
-            OWI_ReceiveData(buf, 8);
-            state = OWI_STATE_WAIT_FOR_CONVERSION2;
-            break;
-        }
-    
-        case OWI_STATE_WAIT_FOR_CONVERSION2:
-        {
-            // If everything received was zero. Jump to the last state
-            // to receive a new byte.
-            if (buf[0] == 0x00)
-            {
-                state = OWI_STATE_WAIT_FOR_CONVERSION1;
-            }
-            // If there was at least 1 one received, continue with a new
-            // reset.
-            else
-            {
-                OWI_DetectPresence();
-                state = OWI_STATE_DETECT_PRESENCE2;
-            }
-            break;
-        }
-    
-        case OWI_STATE_DETECT_PRESENCE2:
-        {
-            // If no presence was detected, go back to idle state.
-            if(OWIStatus.presenceDetected == FALSE)
-            {
-                state = OWI_STATE_IDLE;
-            }
-            // If presence was detected, send Skip ROM and Read scratchpad
-            // signals. 
-            else
-            {
-                buf[0] = OWI_ROM_SKIP;
-                buf[1] = DS1820_READ_SCRATCHPAD;
-                OWI_TransmitData(buf, 16);
-                state = OWI_STATE_READ_SCRATCHPAD;   
-            }
-            break;
-        }
-    
-        case OWI_STATE_READ_SCRATCHPAD:
-        {
-            // Read the 9 bytes of scratchpad data.
-            OWI_ReceiveData(buf, 9 * 8);
-            state = OWI_STATE_CHECK_CRC;
-            break;
-        }
-    
-        case OWI_STATE_CHECK_CRC:
-        {
-            // Compare the computed crc with the crc read from the 
-            // scratchpad. 
-            crc = 0;
-            for(i = 0; i < 8; i++)
-            {
-                crc =  OWI_ComputeCRC8(buf[i], crc);
-            }
-            // If they match, update the temperature variable.
-            if (crc == buf[8])
-            {
-                temperature = buf[0] | (buf[1] << 8);                
-                state = OWI_STATE_IDLE;
-            }
-            // If they don't match, go back to the second Reset to 
-            // read the scratchpad again.
-            else
-            {
-                OWI_DetectPresence();
-                state = OWI_STATE_DETECT_PRESENCE2;
-            }
-            break;
-        }
-    }
 }
