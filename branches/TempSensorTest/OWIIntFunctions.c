@@ -234,7 +234,7 @@ ISR(OWI_UART_RXC_VECT)
                 byteIndex++;
             }
         }
-    }    
+    }
     return;
 }
 

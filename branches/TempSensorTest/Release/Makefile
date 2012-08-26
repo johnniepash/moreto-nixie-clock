@@ -44,6 +44,7 @@ SUBDIRS :=
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS +=  \
 ../clock.c \
+../DHT22.c \
 ../NixieClockV1.c \
 ../RGBled.c
 
@@ -57,6 +58,7 @@ ASM_SRCS +=
 
 OBJS +=  \
 clock.o \
+DHT22.o \
 i2cmaster.o \
 NixieClockV1.o \
 RGBled.o
@@ -64,6 +66,7 @@ RGBled.o
 
 OBJS_AS_ARGS +=  \
 clock.o \
+DHT22.o \
 i2cmaster.o \
 NixieClockV1.o \
 RGBled.o
@@ -71,12 +74,14 @@ RGBled.o
 
 C_DEPS +=  \
 clock.d \
+DHT22.d \
 NixieClockV1.d \
 RGBled.d
 
 
 C_DEPS_AS_ARGS +=  \
 clock.d \
+DHT22.d \
 NixieClockV1.d \
 RGBled.d
 
@@ -111,10 +116,12 @@ ADDITIONAL_DEPENDENCIES:= $(HEX_FLASH_FILE_PATH) size
 
 
 
+
+
 ./%.o: .././%.c ../NixieClockV1.avrgccproj
 	@echo Building file: $<
 	@echo Invoking: AVR/GNU C Compiler
-	$(QUOTE)$(AVR_APP_PATH)avr-gcc.exe$(QUOTE) -funsigned-char -funsigned-bitfields -DF_CPU=8000000  -Os -fpack-struct -fshort-enums -Wall -c  -mmcu=attiny2313   -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o"$@" "$<"
+	$(QUOTE)$(AVR_APP_PATH)avr-gcc.exe$(QUOTE) -funsigned-char -funsigned-bitfields -DF_CPU=8000000  -Os -fpack-struct -fshort-enums -Wall -c  -mmcu=atmega88pa   -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o"$@" "$<"
 	@echo Finished building: $<
 
 
@@ -124,7 +131,7 @@ ADDITIONAL_DEPENDENCIES:= $(HEX_FLASH_FILE_PATH) size
 ./%.o: .././%.s ../NixieClockV1.avrgccproj
 	@echo Building file: $<
 	@echo Invoking: AVR/GNU Assembler
-	$(QUOTE)$(AVR_APP_PATH)avr-gcc.exe$(QUOTE) -Wa,-gdwarf2 -x assembler-with-cpp -c  -mmcu=attiny2313   -o"$@" "$<"
+	$(QUOTE)$(AVR_APP_PATH)avr-gcc.exe$(QUOTE) -Wa,-gdwarf2 -x assembler-with-cpp -c  -mmcu=atmega88pa   -o"$@" "$<"
 	@echo Finished building: $<
 
 
@@ -147,7 +154,7 @@ all: $(OUTPUT_FILE_PATH) $(ADDITIONAL_DEPENDENCIES)
 $(OUTPUT_FILE_PATH): $(OBJS) $(USER_OBJS)
 	@echo Building target: $@
 	@echo Invoking: AVR/GNU C Linker
-	$(QUOTE)$(AVR_APP_PATH)avr-gcc.exe$(QUOTE)  -mmcu=attiny2313   -o$(OUTPUT_FILE_PATH_AS_ARGS) $(OBJS_AS_ARGS) $(USER_OBJS) $(LIBS)
+	$(QUOTE)$(AVR_APP_PATH)avr-gcc.exe$(QUOTE)  -mmcu=atmega88pa   -o$(OUTPUT_FILE_PATH_AS_ARGS) $(OBJS_AS_ARGS) $(USER_OBJS) $(LIBS)
 	@echo Finished building target: $@
 
 
@@ -162,7 +169,7 @@ $(LSS_FILE_PATH): $(OUTPUT_FILE_PATH)
 	$(QUOTE)$(AVR_APP_PATH)avr-objdump.exe$(QUOTE) -h -S $(QUOTE)$<$(QUOTE) > $(QUOTE)$@$(QUOTE)
 
 size: $(OUTPUT_FILE_PATH)
-	@$(QUOTE)$(AVR_APP_PATH)avr-size.exe$(QUOTE) -C --mcu=attiny2313 $(OUTPUT_FILE_PATH_AS_ARGS)
+	@$(QUOTE)$(AVR_APP_PATH)avr-size.exe$(QUOTE) -C --mcu=atmega88pa $(OUTPUT_FILE_PATH_AS_ARGS)
 
 # Other Targets
 clean:
