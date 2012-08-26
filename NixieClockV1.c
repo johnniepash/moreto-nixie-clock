@@ -358,13 +358,11 @@ int main(void)
 	//uint16_t a = 0;
 	my_time_t clock1;
 	
-	uint8_t temp1;
-	float temp2;
-	float temp;
-	int integertemp;
-	char decimal;
+	int8_t temp_int;
+	uint8_t temp_dec;
+	uint8_t hum_int;
+	uint8_t hum_dec;
 	
-	//DHT22_status DHTstatus;
 	display_mode current_mode = TEMP;
 	set_digit current_adjust = OFF;
 	uint8_t adjust_addr = 0;	// DS1307 adjust address variable.
@@ -432,17 +430,18 @@ int main(void)
 		{
 			readtime_DS1307(&clock1);
 			//toggle(PORTB,NEON1);
-			DHT22_ERROR_t errorCode = readDHT22(&temp1, &temp2);
+			DHT22_ERROR_t errorCode = readDHT22(&temp_int, &temp_dec, &hum_int, &hum_dec);
 			switch(errorCode)
 			{
 				case DHT_ERROR_NONE:
-					temp = temp2/(int)temp2; // this will provide you the decimal part.
-					decimal = (char)(temp*100); //this will give you decimal part converted to integer.
-					integertemp = (int)temp2; //get the integer part.
+					//temp = temp2/(int)temp2; // this will provide you the decimal part.
+					//decimal = (char)(temp*100); //this will give you decimal part converted to integer.
+					//integertemp = (int)temp2; //get the integer part.
 				
-					clock1.humid_decimal = temp1;
-					clock1.temp_decimal = decimal;
-					clock1.temp_digit = (uint8_t)integertemp;
+					clock1.humid_digit = hum_int;
+					clock1.humid_decimal = hum_dec;
+					clock1.temp_digit = abs(temp_int);
+					clock1.temp_decimal = temp_dec;
 					//temperature_now = temp2;	//global variable
 					break;
 				default:

@@ -20,7 +20,7 @@ typedef enum
 } DHT22_ERROR_t;
 
 
-DHT22_ERROR_t readDHT22( uint8_t *dht_humidity_now, float *dht_temperature_now );
+DHT22_ERROR_t readDHT22(int8_t *temp_integral, uint8_t *temp_decimal, uint8_t *hum_integral,uint8_t *hum_decimal);
 
 
 #endif
