@@ -1,7 +1,8 @@
 #include "DHT22.h"
 
 
-DHT22_ERROR_t readDHT22( uint8_t *dht_humidity_now, float *dht_temperature_now )
+//DHT22_ERROR_t readDHT22( uint8_t *dht_humidity_now, float *dht_temperature_now )
+DHT22_ERROR_t readDHT22(int8_t *temp_integral, uint8_t *temp_decimal, uint8_t *hum_integral,uint8_t *hum_decimal)
 {
 
 	uint8_t retryCount = 0;
@@ -130,13 +131,23 @@ DHT22_ERROR_t readDHT22( uint8_t *dht_humidity_now, float *dht_temperature_now )
 	if( checkSum == ( (csPart1 + csPart2 + csPart3 + csPart4) & 0xFF ) )
 	{
 		// raw data to sensor values
-		*dht_humidity_now = ( (rawHumidity + 5) / 10 );
+		*hum_integral = (uint8_t)(rawHumidity / 10);
+		*hum_decimal = (uint8_t)(rawHumidity % 10);
+		
+		
+		//*dht_humidity_now = ( (rawHumidity + 5) / 10 );
 
-		if(rawTemperature & 0x8000)											// Below zero, non standard way of encoding negative numbers!
+		if(rawTemperature & 0x8000)	// Check if temperature is below zero, non standard way of encoding negative numbers!
 		{
-			rawTemperature &= 0x7FFF;
-			*dht_temperature_now = (rawTemperature / 10.0) * -1.0;
-		} else *dht_temperature_now = (rawTemperature) / 10.0;
+			rawTemperature &= 0x7FFF; // Remove signal bit
+			*temp_integral = (int8_t)(rawTemperature / 10.0) * -1;
+			*temp_decimal = (uint8_t)(rawTemperature % 10);
+			//*dht_temperature_now = (rawTemperature / 10.0) * -1.0;
+		} else
+		{
+			*temp_integral = (int8_t)(rawTemperature / 10.0);
+			*temp_decimal = (uint8_t)(rawTemperature % 10);			
+		}
 
 		return DHT_ERROR_NONE;
 	}
