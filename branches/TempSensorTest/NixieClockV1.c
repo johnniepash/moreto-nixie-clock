@@ -1,11 +1,32 @@
+/* Copyright 2012 Miguel Moreto
+ *
+ * This file is part of Moreto Nixie Clock firmware.
+ *
+ * Moreto Nixie Clock firmware is free software: you can redistribute 
+ * it and/or modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ * 
+ * Moreto Nixie Clock firmware is distributed in the hope that it will 
+ * be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+ * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License 
+ * along with Moreto Nixie Clock firmware. If not, see http://www.gnu.org/licenses/.
+ */
+
 /*
  * NixieClockV1.c
  *
- * Created: 08/02/2012 20:22:37
- *  Author: moreto
+ * Main program file for Moreto Nixie Clock
+ * https://code.google.com/p/moreto-nixie-clock/
  *
+ * Created: 08/02/2012 20:22:37
+ *  Author: Miguel Moreto
  *
  * Software PWM adapted from Smart LED Prototypes (http://todbot.com/blog/2007/03/25/smart-led-prototypes/).
+ * DHT22 sensor code adapted from http://www.avrfreaks.net/index.php?name=PNphpBB2&file=viewtopic&p=974797
  */ 
 
 
@@ -43,7 +64,6 @@
 #define ADDR_YEAR 0x06
 
 // Pin and masks definitions:
-//#define LED PD6
 #define KEY_MASK 0x0F	// Mask used to read keys connected in a PCF8574 I/O expander. 0x0F, only four keys.
 #define RGB_LED_MIN 0x00	// Pin number of the Common cathode RGB led conected at PCF8574_3
 #define RGB_LED_HOUR 0x01
@@ -75,7 +95,6 @@
 #define output_high(port,pin) port |= (1<<pin)
 #define set_input(portdir,pin) portdir &= ~(1<<pin)
 #define set_output(portdir,pin) portdir |= (1<<pin)
-//#define SET(port,pin) port |= (1<<pin)
 #define toggle(port,pin) port ^= (1<<pin)
 
 void delay_ms(uint16_t ms);
@@ -84,11 +103,8 @@ void delay_ms(uint16_t ms);
 #define FALSE       0
 #define TRUE        1
 
-
-
 signed int temperature = 100;
 unsigned int humidity = 0;
-//const uint8_t temp_decimal[] = {00,06,12,19,25,31,37,44,50,56,62,69,75,81,87,94,00};
 
 // Global variables:
 volatile unsigned char int0_flag = 0;
@@ -121,10 +137,12 @@ ISR(PCINT2_vect)
 	keys = (~PIND) & ((1<<SW1)|(1<<SW2)|(1<<SW3));
 	if (keys > 0)
 	{
+		output_high(PORTB,NEON2);
 		key_pressed = keys;
 	}
 	else
 	{
+		output_low(PORTB,NEON2);
 		key_pressed = 0;
 	}
 	
@@ -133,7 +151,6 @@ ISR(PCINT2_vect)
 
 ISR(TIMER0_OVF_vect) // Update RGB Led pins
 {
-	//static unsigned char pinlevelB=PORTB_MASK;	// Initially all pwm pins are 1.
 	static unsigned char softcount=0xFF;
 	
 	//PORTB = pinlevelB;		// update outputs
@@ -144,23 +161,19 @@ ISR(TIMER0_OVF_vect) // Update RGB Led pins
 		compare[0] = compbuff[0];
 		compare[1] = compbuff[1];
 		compare[2] = compbuff[2];
-		//pinlevelB = PORTB_MASK;     // set all port pins high
-		LED_PORT |= PWM_PORT_MASK;
+		LED_PORT |= PWM_PORT_MASK;	// set all rgb led pins high
 	}
 	// clear port pin on compare match (executed on next interrupt)
 	if(compare[0] == softcount)
 	{
-		//pinlevelB &= ~(1 << RED);	// Red LED turn off.
 		LED_PORT &= ~(1 << RED);	// Red LED turn off.
 	}
 	if(compare[1] == softcount)
 	{
-		//pinlevelB &= ~(1 << GREEN);	// Green LED turn off.
 		LED_PORT &= ~(1 << GREEN);	// Green LED turn off.
 	}		
 	if(compare[2] == softcount)
 	{
-		//pinlevelB &= ~(1 << BLUE);	// Blue LED turn off.
 		LED_PORT &= ~(1 << BLUE);	// Blue LED turn off.
 	}
 }
@@ -297,10 +310,6 @@ void inc_dec_time_DS1307(my_time_t *my_time, uint8_t addr)
 // Update the number shown by nixies accordingly with the selected mode.
 void update_nixies(my_time_t *my_time, display_mode current_mode)
 {
-	//uint8_t upperval, lowerval;
-	// Convert val to bcd:
-	//upperval = (uint8_t)(val/100);
-	//lowerval = (uint8_t)(val % 100);
 	switch (current_mode)
 	{
 		case MIN_SEC:
@@ -393,7 +402,6 @@ int main(void)
 	
 	
 	// Timer 0 setup (used for software PWM):
-	//TCCR0A = 0x00;//(1<< WGM00);
 	TCCR0B = (1 << CS00);         // no prescaller (count to 0xFF). PWM freq = (Clock/256)/256. With 8MHz, PWM freq. is 122Hz.
 	TIMSK0 = (1 << TOIE0);         // enable overflow interrupt
 
@@ -412,14 +420,9 @@ int main(void)
 	PCMSK2 |= (1<<PCINT21)|(1<<PCINT22)|(1<<PCINT23);	// Enable PCINT 21 to 23 (keys)
 
 	i2c_init();		// initialize I2C library
-	//DHT22_Init();
 	
 	// Configuring DS1307:
 	DS1307_write_byte(CR,SQW_OUT_1Hz);
-	//i2c_start_wait(DS1307+I2C_WRITE);
-	//i2c_write(CR);	// write control register address
-	//i2c_write(SQW_OUT_1Hz);	// write control register value
-	//i2c_stop();		// release bus.
 
 	sei();
 
@@ -429,30 +432,18 @@ int main(void)
 		if (int0_flag == 1)	// One second has passed.
 		{
 			readtime_DS1307(&clock1);
-			//toggle(PORTB,NEON1);
 			DHT22_ERROR_t errorCode = readDHT22(&temp_int, &temp_dec, &hum_int, &hum_dec);
 			switch(errorCode)
 			{
 				case DHT_ERROR_NONE:
-					//temp = temp2/(int)temp2; // this will provide you the decimal part.
-					//decimal = (char)(temp*100); //this will give you decimal part converted to integer.
-					//integertemp = (int)temp2; //get the integer part.
-				
 					clock1.humid_digit = hum_int;
 					clock1.humid_decimal = hum_dec;
 					clock1.temp_digit = abs(temp_int);
 					clock1.temp_decimal = temp_dec;
-					//temperature_now = temp2;	//global variable
 					break;
 				default:
 					break;
 			}	
-			//clock1.temp_digit = (uint8_t)(temperature >> 4);
-//			clock1.temp_digit = DHT22_GetTemperature();
-			//(uint8_t)(temperature >> 8);
-			//clock1.temp_decimal = temp_decimal[temperature & 0x000F];
-//			clock1.temp_decimal = 0;
-			//(uint8_t)(temperature & 0x00FF);
 			update_nixies(&clock1,current_mode);
 			int0_flag = 0;
 			
@@ -463,7 +454,6 @@ int main(void)
 			switch (key_pressed)
 			{
 				case (1<<SW1):	// Key 1, view mode.
-					toggle(PORTB,NEON2);
                     if (current_mode < HUMID)
                     {
 						current_mode++;
@@ -474,7 +464,6 @@ int main(void)
                     }
 					break;
 				case (1<<SW2): // Key 2, se adjust parameter
-					toggle(PORTB,NEON2);
 					current_adjust++;
 					if (current_adjust > DIGIT_HOUR)
 					{
@@ -524,12 +513,10 @@ int main(void)
                         case TEMP:
 							leds_on = (1<<RGB_LED_HOUR)|(1<<RGB_LED_MIN);
                             current_adjust++;       // Skip next digit setting.
-                            adjust_addr = 0x10;	// TEMPORARY STUFF
                             break;
                         case HUMID:
 							leds_on = (1<<RGB_LED_HOUR)|(1<<RGB_LED_MIN);
                             current_adjust++;       // Skip next digit setting.
-                            adjust_addr = 0x10;	// TEMPORARY STUFF
                             break;
 						default:
 							// Do nothing, for now.
@@ -538,7 +525,6 @@ int main(void)
 					}
 					break;
 				case (1<<SW3):	// Increment switch.
-					toggle(PORTB,NEON2);
 					if (current_adjust != OFF)
 					{
 						inc_dec_time_DS1307(&clock1, adjust_addr);
