@@ -1,7 +1,24 @@
+/* Copyright 2012 Miguel Moreto
+ *
+ * This file is part of Moreto Nixie Clock firmware.
+ *
+ * Moreto Nixie Clock firmware is free software: you can redistribute 
+ * it and/or modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ * 
+ * Moreto Nixie Clock firmware is distributed in the hope that it will 
+ * be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+ * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License 
+ * along with Moreto Nixie Clock firmware. If not, see http://www.gnu.org/licenses/.
+ */
 /*
  * clock.c
  *
- * Time manipulation routines
+ * Time manipulation routines and data structures
  *
  * 
  *
