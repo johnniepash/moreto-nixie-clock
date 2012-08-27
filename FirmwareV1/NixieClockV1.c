@@ -353,9 +353,6 @@ void update_nixies(my_time_t *my_time, display_mode current_mode)
 			/* Your code here */
 			break;
 	}
-                   
-
-	
 }
 
 
@@ -364,7 +361,6 @@ int main(void)
 {
 	PCF8574_write(PCF8574_3,0x00);	// Turn off the symbolic nixie.
 	// Variables:
-	//uint16_t a = 0;
 	my_time_t clock1;
 	
 	int8_t temp_int;
@@ -383,6 +379,11 @@ int main(void)
 	clock1.temp_digit = 0;
 	clock1.humid_decimal = 0;
 	clock1.humid_digit = 0;
+
+	uint16_t seconds_counter = 0;
+	display_mode modes_cycle[3] = {TEMP, HUMID, HOUR_MIN};
+	uint8_t mode_cycle_index = 0;
+	
 
 	// Pin setup:
 	DDRB |= (1<<NEON1)|(1<<NEON2);	// Output pins of PortB
@@ -431,6 +432,19 @@ int main(void)
 			
 		if (int0_flag == 1)	// One second has passed.
 		{
+			if ((seconds_counter % 5) == 0) //
+			{
+				if (mode_cycle_index < 3)
+				{
+					current_mode = modes_cycle[mode_cycle_index];
+					mode_cycle_index++;
+				}
+				else
+				{
+					mode_cycle_index = 0;
+				}
+				seconds_counter = 0;	// Reset counter
+			}
 			readtime_DS1307(&clock1);
 			DHT22_ERROR_t errorCode = readDHT22(&temp_int, &temp_dec, &hum_int, &hum_dec);
 			switch(errorCode)
@@ -445,8 +459,10 @@ int main(void)
 					break;
 			}	
 			update_nixies(&clock1,current_mode);
-			int0_flag = 0;
+			seconds_counter++;
 			
+			
+			int0_flag = 0;
 		}
 
 		if (key_pressed > 0) // Some key was pressed, read it.
