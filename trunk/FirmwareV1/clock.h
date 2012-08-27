@@ -1,7 +1,24 @@
+/* Copyright 2012 Miguel Moreto
+ *
+ * This file is part of Moreto Nixie Clock firmware.
+ *
+ * Moreto Nixie Clock firmware is free software: you can redistribute 
+ * it and/or modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ * 
+ * Moreto Nixie Clock firmware is distributed in the hope that it will 
+ * be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+ * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License 
+ * along with Moreto Nixie Clock firmware. If not, see http://www.gnu.org/licenses/.
+ */
 /*
  * clock.h
  *
- * Time manipulation library definitions
+ * Time manipulation routines and data structures
  *
  * Created: 05/01/2012 16:16:25
  *  Author: Miguel
@@ -43,8 +60,10 @@ typedef struct
 	uint8_t day;	// 
 	uint8_t month;
 	uint8_t year;	// 0 to 99, BCD sapareted by nibble.
-	uint16_t temperature;
-	uint16_t humidity; 
+	uint8_t temp_digit;
+	uint8_t temp_decimal;
+	uint8_t humid_digit; 
+	uint8_t humid_decimal; 
 } my_time_t;
 
 uint8_t calculate_hour_DS1307(uint8_t hours); // Calculate the digits from the hour, min and seconds, using the format of DS1307 RTC.
