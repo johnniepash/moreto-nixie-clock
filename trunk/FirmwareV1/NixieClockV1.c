@@ -33,6 +33,7 @@
 #include <avr/io.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
+#include <avr/sleep.h>
 #include "i2cmaster.h"
 #include "clock.h"
 #include "RGBled.h"
@@ -45,7 +46,8 @@
 #define PCF8574_3	0x74	// I2C address of PCF8574 I/O expander 3. 01000100 0x74
 #define XTAL		8000000L    // Crystal frequency in Hz
 #define TIMER_FREQ	10			// timer1 frequency in Hz
-#define MODE_CHANGE_SECONDS	3
+#define MODE_CHANGE_SECONDS	5
+#define SLEEP_SECONDS 10	// How many seconds it takes to sleep without PIR interrupt
 
 // DS1307 control register squarewave out definitions
 #define CR	0x07				// Control register address.
@@ -78,6 +80,7 @@
 #define SW1 PD5
 #define SW2 PD6
 #define SW3 PD7
+#define POWER_ON_PIN PB1
 
 // Software PWM definitions:
 #define RED PC0
@@ -99,7 +102,6 @@
 
 void delay_ms(uint16_t ms);
 
-
 #define FALSE       0
 #define TRUE        1
 
@@ -114,37 +116,41 @@ volatile unsigned char timer1A_flag = 0;
 volatile unsigned char change_mode_flag = 0;
 volatile unsigned char leds_on = (1<<RGB_LED_HOUR)|(1<<RGB_LED_MIN)|(1<<RGB_LED_SYMB);	// RGB and symbolic nixies status (value to be written in PCF8574_3).
 
+// Seconds counter to enter in sleep mode.
+volatile uint16_t sleep_seconds_counter = 0;
+
 unsigned char compare[CHMAX];
 volatile unsigned char compbuff[CHMAX];
 
 
-// External interrupt 0 ISR (fired by the PCF8574 with MC14490 key debouncer):
+// External interrupt 0 ISR (fired by the RTC clock square wave output):
 ISR(INT0_vect) 
 { 
 	int0_flag = 1;	// Set the flag (the processing is done in main function).
 }
 
-// External interrupt 0 ISR (fired by the PCF8574 with MC14490 key debouncer):
+// External interrupt 1 ISR (fired by PIR module, wakeup from sleep):
 ISR(INT1_vect) 
 { 
-	int1_flag = 1;	// Set the flag (the processing is done in main function).
+	sleep_seconds_counter = 0;
 }
 
-// External interrupt Pin Change 2 (PCINT 16 to 23).
+// External interrupt Pin Change 2 (PCINT 16 to 23, push-buttons).
 ISR(PCINT2_vect)
 {
 	unsigned char keys;
 	keys = (~PIND) & ((1<<SW1)|(1<<SW2)|(1<<SW3));
 	if (keys > 0)
 	{
-		output_high(PORTB,NEON2);
+		//output_high(PORTB,NEON2);
 		key_pressed = keys;
 	}
 	else
 	{
-		output_low(PORTB,NEON2);
+		//output_low(PORTB,NEON2);
 		key_pressed = 0;
 	}
+	sleep_seconds_counter = 0;	// Reset time to sleep counter.
 	
 }
 
@@ -359,7 +365,7 @@ void update_nixies(my_time_t *my_time, display_mode current_mode)
 
 int main(void)
 {
-	PCF8574_write(PCF8574_3,0x00);	// Turn off the symbolic nixie.
+	//PCF8574_write(PCF8574_3,0x00);	// Turn off the symbolic nixie.
 	// Variables:
 	my_time_t clock1;
 	
@@ -370,7 +376,7 @@ int main(void)
 	
 	display_mode current_mode = TEMP;
 	set_digit current_adjust = OFF;
-	uint8_t adjust_addr = 0;	// DS1307 adjust address variable.
+	uint8_t adjust_addr = 0;	// DS1307 setting values address variable.
 	color led_color;
     uint8_t hue = 0;
 	hset(hue,&led_color);
@@ -380,16 +386,17 @@ int main(void)
 	clock1.humid_decimal = 0;
 	clock1.humid_digit = 0;
 
-	uint16_t seconds_counter = 0;
+	uint8_t mode_change_seconds_counter = 0;
 	display_mode modes_cycle[3] = {TEMP, HUMID, HOUR_MIN};
 	uint8_t mode_cycle_index = 0;
 	
 
 	// Pin setup:
-	DDRB |= (1<<NEON1)|(1<<NEON2);	// Output pins of PortB
+	DDRB |= (1<<NEON1)|(1<<NEON2)|(1<<POWER_ON_PIN);	// Output pins of PortB
 	DDRC |= (1<<RED)|(1<<GREEN)|(1<<BLUE);	// Output pins of PortC
 	DDRD |= (1<<PD0)|(1<<PD1);
-
+	
+	output_high(PORTB,POWER_ON_PIN);	// Turn on power control pin
 	unsigned char i, pwm;
 	pwm = PWMDEFAULT;
 	
@@ -412,10 +419,8 @@ int main(void)
 	TIMSK1 |= (1<<OCIE1A);				// enable Output Compare 1 overflow interrupt
 
 	//External interrupt setup:	
-//	set_input(DDRD, PD2);	// INT0
-//	set_input(DDRD, PD3);	// INT1
 	DDRD &= ~((1<<PD2)|(1<<PD3)|(1<<SW1)|(1<<SW2)|(1<<SW3)); // Setting pins as inputs.
-	EICRA |= ((1<<ISC01)|(1<<ISC11));	// Falling edge interrupt for INT0 and INT1
+	EICRA |= ((1<<ISC01)|(1<<ISC10)|(1<<ISC11));	// Falling edge interrupt for INT0 and rising in INT1.
 	EIMSK |= ((1<<INT0)|(1<<INT1));		// Enabling INT0 and INT1
 	PCICR |= (1<<PCIE2);		// Enable PCINT2 interrupt.
 	PCMSK2 |= (1<<PCINT21)|(1<<PCINT22)|(1<<PCINT23);	// Enable PCINT 21 to 23 (keys)
@@ -425,6 +430,11 @@ int main(void)
 	// Configuring DS1307:
 	DS1307_write_byte(CR,SQW_OUT_1Hz);
 
+	set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+	
+	
+	output_low(PORTB,NEON2);
+	
 	sei();
 
     while(1)
@@ -432,7 +442,31 @@ int main(void)
 			
 		if (int0_flag == 1)	// One second has passed.
 		{
-			if ((seconds_counter % 5) == 0) //
+			// Check if it is to sleep (according to AVR LibC reference):
+			cli();
+			if (sleep_seconds_counter == SLEEP_SECONDS)
+			{
+				// It is time to sleep!
+				//EIMSK &= ~((1<<INT0));	// Disable INT0 (square wave from RTC).
+				PCICR &= ~(1<<PCIE2);	// Disable PCINT2 interrupt.
+				
+				output_high(PORTB,NEON2);
+				output_low(PORTB,POWER_ON_PIN);
+
+				sleep_enable();
+				//sleep_bod_disable();
+				sei();
+				sleep_cpu();
+				sleep_disable();
+				output_high(PORTB,POWER_ON_PIN);
+				output_low(PORTB,NEON2);
+				//EIMSK |= ((1<<INT0));	// Enable INT0 (square wave from RTC).
+				PCICR |= (1<<PCIE2);	// Enable PCINT2 interrupt.
+			}
+			sei();
+			// Check if it is to cycle the mode (at every multiple of MODE_CHANGE_SECONDS)
+			// while in no adjust mode.
+			if ((mode_change_seconds_counter == MODE_CHANGE_SECONDS) & (current_adjust == OFF)) 
 			{
 				if (mode_cycle_index < 3)
 				{
@@ -443,7 +477,7 @@ int main(void)
 				{
 					mode_cycle_index = 0;
 				}
-				seconds_counter = 0;	// Reset counter
+				mode_change_seconds_counter = 0;	// Reset counter
 			}
 			readtime_DS1307(&clock1);
 			DHT22_ERROR_t errorCode = readDHT22(&temp_int, &temp_dec, &hum_int, &hum_dec);
@@ -459,7 +493,8 @@ int main(void)
 					break;
 			}	
 			update_nixies(&clock1,current_mode);
-			seconds_counter++;
+			mode_change_seconds_counter++;
+			sleep_seconds_counter++;
 			
 			
 			int0_flag = 0;
@@ -470,6 +505,7 @@ int main(void)
 			switch (key_pressed)
 			{
 				case (1<<SW1):	// Key 1, view mode.
+					mode_change_seconds_counter = 0; // Reset seconds counter.
                     if (current_mode < HUMID)
                     {
 						current_mode++;
