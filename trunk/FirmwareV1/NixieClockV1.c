@@ -38,6 +38,7 @@
 #include "clock.h"
 #include "RGBled.h"
 #include "DHT22.h"
+#include "NRF24L01/radio.h"
 
 
 #define DS1307		0xD0 	// I2C address of DS1307 11010000. Last zero is the R/W bit. 0x70
@@ -47,7 +48,7 @@
 #define XTAL		8000000L    // Crystal frequency in Hz
 #define TIMER_FREQ	10			// timer1 frequency in Hz
 #define MODE_CHANGE_SECONDS	5
-#define SLEEP_SECONDS 10	// How many seconds it takes to sleep without PIR interrupt
+#define SLEEP_SECONDS 300	// How many seconds it takes to sleep without PIR interrupt
 
 // DS1307 control register squarewave out definitions
 #define CR	0x07				// Control register address.
@@ -80,7 +81,7 @@
 #define SW1 PD5
 #define SW2 PD6
 #define SW3 PD7
-#define POWER_ON_PIN PB1
+#define POWER_ON_PIN PD4
 
 // Software PWM definitions:
 #define RED PC0
@@ -91,6 +92,13 @@
 #define PWM_PORT_MASK  (1 << RED)|(1 << GREEN)|(1 << BLUE) // PWM pin Mask
 #define LED_PORT PORTC
 #define LED_DDR DDRC
+
+// NRF24L01 definitions:
+volatile uint8_t rxflag = 0; 
+uint8_t station_addr[5] = { 0xE4, 0xE4, 0xE4, 0xE4, 0xE4 }; // Receiver address
+uint8_t trans_addr[5] = { 0x98, 0x76, 0x54, 0x32, 0x10 };	// Transmitter address
+RADIO_RX_STATUS rx_status;
+radiopacket_t packet;
 
 
 // Some macros that make the code more readable
@@ -130,10 +138,10 @@ ISR(INT0_vect)
 }
 
 // External interrupt 1 ISR (fired by PIR module, wakeup from sleep):
-ISR(INT1_vect) 
-{ 
-	sleep_seconds_counter = 0;
-}
+// *** ISR(INT1_vect) 
+// *** { 
+// *** 	sleep_seconds_counter = 0;
+// *** }
 
 // External interrupt Pin Change 2 (PCINT 16 to 23, push-buttons).
 ISR(PCINT2_vect)
@@ -368,6 +376,7 @@ int main(void)
 	//PCF8574_write(PCF8574_3,0x00);	// Turn off the symbolic nixie.
 	// Variables:
 	my_time_t clock1;
+	DHT22_DATA_t sensor_data;
 	
 	int8_t temp_int;
 	uint8_t temp_dec;
@@ -392,11 +401,11 @@ int main(void)
 	
 
 	// Pin setup:
-	DDRB |= (1<<NEON1)|(1<<NEON2)|(1<<POWER_ON_PIN);	// Output pins of PortB
+	DDRB |= (1<<NEON1)|(1<<NEON2);	// Output pins of PortB
 	DDRC |= (1<<RED)|(1<<GREEN)|(1<<BLUE);	// Output pins of PortC
-	DDRD |= (1<<PD0)|(1<<PD1);
+	DDRD |= (1<<POWER_ON_PIN);
 	
-	output_high(PORTB,POWER_ON_PIN);	// Turn on power control pin
+	output_high(PORTD,POWER_ON_PIN);	// Turn on power control pin
 	unsigned char i, pwm;
 	pwm = PWMDEFAULT;
 	
@@ -420,7 +429,8 @@ int main(void)
 
 	//External interrupt setup:	
 	DDRD &= ~((1<<PD2)|(1<<PD3)|(1<<SW1)|(1<<SW2)|(1<<SW3)); // Setting pins as inputs.
-	EICRA |= ((1<<ISC01)|(1<<ISC10)|(1<<ISC11));	// Falling edge interrupt for INT0 and rising in INT1.
+// ***	EICRA |= ((1<<ISC01)|(1<<ISC10)|(1<<ISC11));	// Falling edge interrupt for INT0 and rising in INT1.
+	EICRA = ((1<<ISC01)|(1<<ISC11));	// Falling edge interrupt for INT0 and rising in INT1.
 	EIMSK |= ((1<<INT0)|(1<<INT1));		// Enabling INT0 and INT1
 	PCICR |= (1<<PCIE2);		// Enable PCINT2 interrupt.
 	PCMSK2 |= (1<<PCINT21)|(1<<PCINT22)|(1<<PCINT23);	// Enable PCINT 21 to 23 (keys)
@@ -432,14 +442,78 @@ int main(void)
 
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);
 	
-	
 	output_low(PORTB,NEON2);
+
+ 	// initialize the radio, including the SPI module
+	Radio_Init();
+ 
+	// configure the receive settings for radio pipe 0
+	Radio_Configure_Rx(RADIO_PIPE_0, station_addr, ENABLE);
+ 
+	// configure radio transceiver settings.
+	Radio_Configure(RADIO_1MBPS, RADIO_HIGHEST_POWER);
+ 
+	Radio_Set_Tx_Addr(trans_addr);  // or use the address manually informed by trans_addr.
 	
 	sei();
 
     while(1)
     {
+
+	if (rxflag)
+	{
+		rx_status = Radio_Receive(&packet); // Copy received packet to memory and store the result in rx_status.
+		if (rx_status == RADIO_RX_SUCCESS || rx_status == RADIO_RX_MORE_PACKETS) // Check if a packet is available.
+		{
+			output_high(PORTB,NEON2); // Turn on the led.
+        
+			if (packet.type != TXVALUES)
+			{
+				//snprintf(output, sizeof(output), "Error: wrong packet type: %d. Should be %d\n\r", packet.type, TXVALUES);
+				//Serial.print(output);
+			}            
+
+			// Print out the message, along with the message ID and sender address.
+//			snprintf(output, sizeof(output), "DirUD: %d DirLR: %d EsqUD: %d EsqLR %d \n\r",
+//				packet.payload.txvalues.ud_dir,
+//				packet.payload.txvalues.lr_dir,
+//				packet.payload.txvalues.ud_esq,
+//				packet.payload.txvalues.lr_esq);
+//			Serial.print(output); 
+			//CalculaVelocidades(packet.payload.txvalues.ud_dir, packet.payload.txvalues.lr_dir);
+			//atualizaMotores();
+			//atualizaServos(packet.payload.txvalues.ud_esq, packet.payload.txvalues.lr_esq);
+			//processaAcao(packet.payload.txvalues.action);
 			
+			// Resetando a tarefa de verificacao de falha de transmissao:
+			//RxCheck.reset();
+
+			// Reply to the sender by sending an ACK packet, reusing the packet data structure.
+			packet.type = ACK;
+			// Se the ack message id:
+			packet.payload.ack.messageid = 44;
+			packet.payload.ack.veloc_dir = 10;
+			packet.payload.ack.veloc_esq = 100;
+
+			if (Radio_Transmit(&packet, RADIO_WAIT_FOR_TX) == RADIO_TX_MAX_RT)
+			{
+				// If the max retries was reached, the packet was not acknowledged.
+				// This usually occurs if the receiver was not configured correctly or
+				// if the sender didn't copy its address into the radio packet properly.
+//				snprintf(output, sizeof(output), "Could not reply to sender.\n\r");
+//				Serial.print(output);
+			}
+			else
+			{
+			// the transmission was completed successfully
+			//snprintf(output, sizeof(output), "Replied to sender.\n\r");
+			//Serial.print(output);
+			output_low(PORTB,NEON2);// turn off the led.
+			}
+		}
+		rxflag = 0;  // clear the flag.
+	}
+		
 		if (int0_flag == 1)	// One second has passed.
 		{
 			// Check if it is to sleep (according to AVR LibC reference):
@@ -451,14 +525,14 @@ int main(void)
 				PCICR &= ~(1<<PCIE2);	// Disable PCINT2 interrupt.
 				
 				output_high(PORTB,NEON2);
-				output_low(PORTB,POWER_ON_PIN);
+				output_low(PORTD,POWER_ON_PIN);
 
 				sleep_enable();
 				//sleep_bod_disable();
 				sei();
 				sleep_cpu();
 				sleep_disable();
-				output_high(PORTB,POWER_ON_PIN);
+				output_high(PORTD,POWER_ON_PIN);
 				output_low(PORTB,NEON2);
 				//EIMSK |= ((1<<INT0));	// Enable INT0 (square wave from RTC).
 				PCICR |= (1<<PCIE2);	// Enable PCINT2 interrupt.
@@ -480,22 +554,23 @@ int main(void)
 				mode_change_seconds_counter = 0;	// Reset counter
 			}
 			readtime_DS1307(&clock1);
-			DHT22_ERROR_t errorCode = readDHT22(&temp_int, &temp_dec, &hum_int, &hum_dec);
+
+			DHT22_ERROR_t errorCode = readDHT22(&sensor_data);
 			switch(errorCode)
 			{
 				case DHT_ERROR_NONE:
-					clock1.humid_digit = hum_int;
-					clock1.humid_decimal = hum_dec;
-					clock1.temp_digit = abs(temp_int);
-					clock1.temp_decimal = temp_dec;
+					clock1.humid_digit = sensor_data.humidity_integral;
+					clock1.humid_decimal = sensor_data.humidity_decimal;
+					clock1.temp_digit = abs(sensor_data.temperature_integral);
+					clock1.temp_decimal = sensor_data.temperature_decimal;
 					break;
 				default:
+					output_high(PORTB,NEON2);
 					break;
 			}	
 			update_nixies(&clock1,current_mode);
 			mode_change_seconds_counter++;
-			sleep_seconds_counter++;
-			
+// ***			sleep_seconds_counter++;	
 			
 			int0_flag = 0;
 		}
@@ -621,4 +696,12 @@ void delay_ms(uint16_t ms) {
     _delay_ms(1);
     ms--;
   }
+}
+
+void radio_rxhandler(uint8_t pipe_number)
+{
+	rxflag = 1;
+	// This function is called when the radio receives a packet.
+	// It is called in the radio's ISR, so it must be kept short.
+	// The function may be left empty if the application doesn't need to respond immediately to the interrupt.
 }
