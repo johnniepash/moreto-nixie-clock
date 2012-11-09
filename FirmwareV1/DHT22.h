@@ -16,11 +16,18 @@
 #ifndef _DHT22_H_
 #define _DHT22_H_
 
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
+
 #define DHT22_DATA_BIT_COUNT 40
+
+/* Configure port and pin */
+#define DHT22_PIN PC3
+#define DHT22_DDR DDRC
+#define DHT22_PORT_OUT PORTC
+#define DHT22_PORT_IN PINC
 
 typedef enum
 {
@@ -33,8 +40,17 @@ typedef enum
   DHT_ERROR_CHECKSUM,
 } DHT22_ERROR_t;
 
+typedef struct  
+{
+	int8_t temperature_integral;
+	uint8_t temperature_decimal;
+	uint8_t humidity_integral; 
+	uint8_t humidity_decimal; 
+} DHT22_DATA_t;
 
-DHT22_ERROR_t readDHT22(int8_t *temp_integral, uint8_t *temp_decimal, uint8_t *hum_integral,uint8_t *hum_decimal);
+
+//DHT22_ERROR_t readDHT22(int8_t *temp_integral, uint8_t *temp_decimal, uint8_t *hum_integral,uint8_t *hum_decimal);
+DHT22_ERROR_t readDHT22(DHT22_DATA_t* data);
 
 
 #endif
