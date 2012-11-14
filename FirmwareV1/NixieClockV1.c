@@ -48,7 +48,7 @@
 #define XTAL		8000000L    // Crystal frequency in Hz
 #define TIMER_FREQ	10			// timer1 frequency in Hz
 #define MODE_CHANGE_SECONDS	5
-#define SLEEP_SECONDS 300	// How many seconds it takes to sleep without PIR interrupt
+#define SLEEP_SECONDS 10	// How many seconds it takes to sleep without PIR interrupt
 
 // DS1307 control register squarewave out definitions
 #define CR	0x07				// Control register address.
@@ -81,6 +81,7 @@
 #define SW1 PD5
 #define SW2 PD6
 #define SW3 PD7
+#define SW4 PD0
 #define POWER_ON_PIN PD4
 
 // Software PWM definitions:
@@ -137,17 +138,27 @@ ISR(INT0_vect)
 	int0_flag = 1;	// Set the flag (the processing is done in main function).
 }
 
-// External interrupt 1 ISR (fired by PIR module, wakeup from sleep):
-// *** ISR(INT1_vect) 
-// *** { 
-// *** 	sleep_seconds_counter = 0;
-// *** }
+// External interrupt PCINT0 ISR (fired by PIR module, wakeup from sleep):
+ISR(PCINT0_vect)
+{
+	if ((PINB) & (1<<PB0))
+	{
+		output_high(PORTB,NEON2);
+		sleep_seconds_counter = 0;
+	}
+	else
+	{
+		output_low(PORTB,NEON2);
+	}
+	//toggle(PORTB,NEON2);
+	
+}
 
 // External interrupt Pin Change 2 (PCINT 16 to 23, push-buttons).
 ISR(PCINT2_vect)
 {
 	unsigned char keys;
-	keys = (~PIND) & ((1<<SW1)|(1<<SW2)|(1<<SW3));
+	keys = (~PIND) & ((1<<SW1)|(1<<SW2)|(1<<SW3)|(1<<SW4));
 	if (keys > 0)
 	{
 		//output_high(PORTB,NEON2);
@@ -378,10 +389,10 @@ int main(void)
 	my_time_t clock1;
 	DHT22_DATA_t sensor_data;
 	
-	int8_t temp_int;
-	uint8_t temp_dec;
-	uint8_t hum_int;
-	uint8_t hum_dec;
+	//int8_t temp_int;
+	//uint8_t temp_dec;
+	//uint8_t hum_int;
+	//uint8_t hum_dec;
 	
 	display_mode current_mode = TEMP;
 	set_digit current_adjust = OFF;
@@ -398,6 +409,7 @@ int main(void)
 	uint8_t mode_change_seconds_counter = 0;
 	display_mode modes_cycle[3] = {TEMP, HUMID, HOUR_MIN};
 	uint8_t mode_cycle_index = 0;
+	uint8_t radio_register = 0;
 	
 
 	// Pin setup:
@@ -428,17 +440,20 @@ int main(void)
 	TIMSK1 |= (1<<OCIE1A);				// enable Output Compare 1 overflow interrupt
 
 	//External interrupt setup:	
-	DDRD &= ~((1<<PD2)|(1<<PD3)|(1<<SW1)|(1<<SW2)|(1<<SW3)); // Setting pins as inputs.
+	DDRD &= ~((1<<PD2)|(1<<PD3)|(1<<SW1)|(1<<SW2)|(1<<SW3)|(1<<SW4)); // Setting pins as inputs.
 // ***	EICRA |= ((1<<ISC01)|(1<<ISC10)|(1<<ISC11));	// Falling edge interrupt for INT0 and rising in INT1.
 	EICRA = ((1<<ISC01)|(1<<ISC11));	// Falling edge interrupt for INT0 and rising in INT1.
 	EIMSK |= ((1<<INT0)|(1<<INT1));		// Enabling INT0 and INT1
 	PCICR |= (1<<PCIE2);		// Enable PCINT2 interrupt.
-	PCMSK2 |= (1<<PCINT21)|(1<<PCINT22)|(1<<PCINT23);	// Enable PCINT 21 to 23 (keys)
+	PCMSK2 |= (1<<PCINT21)|(1<<PCINT22)|(1<<PCINT23)|(1<<PCINT16);	// Enable PCINT 21 to 23 and 16 (keys)
+	
 
 	i2c_init();		// initialize I2C library
 	
 	// Configuring DS1307:
 	DS1307_write_byte(CR,SQW_OUT_1Hz);
+	
+	update_nixies(&clock1,current_mode);
 
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);
 	
@@ -454,6 +469,11 @@ int main(void)
 	Radio_Configure(RADIO_1MBPS, RADIO_HIGHEST_POWER);
  
 	Radio_Set_Tx_Addr(trans_addr);  // or use the address manually informed by trans_addr.
+
+	// PIR interrupt config. 
+	DDRB &= ~(1<<PB0);	// Setting PIR_INT pin as input.
+	PCICR |= (1<<PCIE0); // Enable PCINT0 interrupt.
+	PCMSK0 |= (1<<PCINT0); // Enable PCINT0 mask.
 	
 	sei();
 
@@ -521,20 +541,31 @@ int main(void)
 			if (sleep_seconds_counter == SLEEP_SECONDS)
 			{
 				// It is time to sleep!
-				//EIMSK &= ~((1<<INT0));	// Disable INT0 (square wave from RTC).
+				EIMSK &= ~((1<<INT1));	// Disable INT0 (fron NRF24L01).
 				PCICR &= ~(1<<PCIE2);	// Disable PCINT2 interrupt.
 				
 				output_high(PORTB,NEON2);
 				output_low(PORTD,POWER_ON_PIN);
-
+				
+				// Powering down the Radio.
+				radio_register = _BV(EN_CRC) | _BV(CRCO) | _BV(PRIM_RX); 
+				set_register(CONFIG, &radio_register, 1);
 				sleep_enable();
-				//sleep_bod_disable();
 				sei();
+				// Going to sleep.
 				sleep_cpu();
+			
+				// Whem wakeup, resume from here (after executing ISR).
 				sleep_disable();
+				// Powering up the Radio.
+				radio_register = _BV(EN_CRC) | _BV(CRCO) | _BV(PWR_UP) | _BV(PRIM_RX);
+				set_register(CONFIG, &radio_register, 1);  // Power up
+				Radio_Flush();
+				
 				output_high(PORTD,POWER_ON_PIN);
 				output_low(PORTB,NEON2);
-				//EIMSK |= ((1<<INT0));	// Enable INT0 (square wave from RTC).
+				
+				EIMSK |= ((1<<INT1));	// Enable INT0 (square wave from RTC).
 				PCICR |= (1<<PCIE2);	// Enable PCINT2 interrupt.
 			}
 			sei();
@@ -565,12 +596,12 @@ int main(void)
 					clock1.temp_decimal = sensor_data.temperature_decimal;
 					break;
 				default:
-					output_high(PORTB,NEON2);
+					//output_high(PORTB,NEON2);
 					break;
 			}	
 			update_nixies(&clock1,current_mode);
 			mode_change_seconds_counter++;
-// ***			sleep_seconds_counter++;	
+			sleep_seconds_counter++;	
 			
 			int0_flag = 0;
 		}
@@ -657,6 +688,8 @@ int main(void)
 						inc_dec_time_DS1307(&clock1, adjust_addr);
 					}
 					break;
+				case (1<<SW4): // Extra switch.
+					break;
 				default:
 					/* Your code here */
 					break;
@@ -669,7 +702,7 @@ int main(void)
 		
 		if (timer1A_flag == 1) // Update RGB leds.
 		{
-			if (current_adjust != OFF)	// When in adjust mode, se RGB led color to red.
+			if (current_adjust != OFF)	// When in adjust mode, set RGB led color to red.
 			{
                 hset(125,&led_color);
 			}
