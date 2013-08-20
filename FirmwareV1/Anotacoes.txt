@@ -1,0 +1,7 @@
+Modulo Termometro/Higrometro externo
+
+CE: PB0
+CSN: PB1
+RF_IRQ: PB2
+DHT22: PA7
+LED: PA3
