@@ -65,10 +65,12 @@
 #define ADDR_DAYS 0x04
 #define ADDR_MONTHS 0x05
 #define ADDR_YEAR 0x06
+#define ADDR_SECS_SLEEP 0x08	// Start address of DS1307 NV SRAM.
+#define ADDR_SECS_MODE 0x09
 
 // Pin and masks definitions:
 #define KEY_MASK 0x0F	// Mask used to read keys connected in a PCF8574 I/O expander. 0x0F, only four keys.
-#define RGB_LED_MIN 0x00	// Pin number of the Common cathode RGB led conected at PCF8574_3
+#define RGB_LED_MIN 0x00	// Pin number of the Common cathode RGB led connected at PCF8574_3
 #define RGB_LED_HOUR 0x01
 #define RGB_LED_SYMB 0x02
 #define NIXIE_DEGREE 0x04
@@ -83,6 +85,7 @@
 #define SW3 PD7
 #define SW4 PD0
 #define POWER_ON_PIN PD4
+#define LED_PIN PD1
 
 // Software PWM definitions:
 #define RED PC0
@@ -114,16 +117,14 @@ void delay_ms(uint16_t ms);
 #define FALSE       0
 #define TRUE        1
 
-signed int temperature = 100;
-unsigned int humidity = 0;
-
 // Global variables:
 volatile unsigned char int0_flag = 0;
 volatile unsigned char int1_flag = 0;
 volatile unsigned char key_pressed = 0;
 volatile unsigned char timer1A_flag = 0;
 volatile unsigned char change_mode_flag = 0;
-volatile unsigned char leds_on = (1<<RGB_LED_HOUR)|(1<<RGB_LED_MIN)|(1<<RGB_LED_SYMB);	// RGB and symbolic nixies status (value to be written in PCF8574_3).
+// RGB and symbolic nixies status (value to be written in PCF8574_3):
+volatile unsigned char leds_on = (1<<RGB_LED_HOUR)|(1<<RGB_LED_MIN);//|(1<<RGB_LED_SYMB);
 
 // Seconds counter to enter in sleep mode.
 volatile uint16_t sleep_seconds_counter = 0;
@@ -143,30 +144,28 @@ ISR(PCINT0_vect)
 {
 	if ((PINB) & (1<<PB0))
 	{
-		output_high(PORTB,NEON2);
+		output_low(PORTD,LED_PIN);	// Turn on the LED.
 		sleep_seconds_counter = 0;
 	}
 	else
 	{
-		output_low(PORTB,NEON2);
+		output_high(PORTD,LED_PIN); // Turn off the LED.
 	}
-	//toggle(PORTB,NEON2);
-	
 }
 
 // External interrupt Pin Change 2 (PCINT 16 to 23, push-buttons).
 ISR(PCINT2_vect)
 {
 	unsigned char keys;
-	keys = (~PIND) & ((1<<SW1)|(1<<SW2)|(1<<SW3)|(1<<SW4));
+	keys = (~PIND) & ((1<<SW1)|(1<<SW2)|(1<<SW3));//|(1<<SW4));
 	if (keys > 0)
 	{
-		//output_high(PORTB,NEON2);
+		output_low(PORTD,LED_PIN);	// Turn on the LED.
 		key_pressed = keys;
 	}
 	else
 	{
-		//output_low(PORTB,NEON2);
+		output_high(PORTD,LED_PIN); // Turn off the LED.
 		key_pressed = 0;
 	}
 	sleep_seconds_counter = 0;	// Reset time to sleep counter.
@@ -186,7 +185,7 @@ ISR(TIMER0_OVF_vect) // Update RGB Led pins
 		compare[0] = compbuff[0];
 		compare[1] = compbuff[1];
 		compare[2] = compbuff[2];
-		LED_PORT |= PWM_PORT_MASK;	// set all rgb led pins high
+		LED_PORT |= PWM_PORT_MASK;	// set all RGB led pins high
 	}
 	// clear port pin on compare match (executed on next interrupt)
 	if(compare[0] == softcount)
@@ -249,13 +248,24 @@ void read_date_DS1307(my_time_t *my_time)
         // at the my_time_t structure.
         
         i2c_start_wait(DS1307+I2C_WRITE);       // set device address and write mode
-        i2c_write(0x03);                                        // write address = 3
+        i2c_write(0x03);                        // write address = 3
         i2c_rep_start(DS1307+I2C_READ); // set device address and read mode
         my_time->weekday = i2c_readAck();
         my_time->day = i2c_readAck();
         my_time->month = i2c_readAck();
         my_time->year = i2c_readNak();
         i2c_stop();
+}
+
+void DS1307_read_config(my_time_t *my_time)
+{
+	i2c_start_wait(DS1307+I2C_WRITE);       // set device address and write mode
+	i2c_write(0x08);	// Address of the user NV SRAM
+	i2c_rep_start(DS1307+I2C_READ); // set device address and read mode
+	my_time->seconds_sleep_x4 = i2c_readAck();
+	my_time->seconds_change_mode = i2c_readAck();
+	i2c_stop();
+	
 }
 
 void DS1307_write_byte(uint8_t addr, uint8_t byte)
@@ -325,11 +335,33 @@ void inc_dec_time_DS1307(my_time_t *my_time, uint8_t addr)
 		case ADDR_YEAR:
 			value_to_write = inc_BCD_2digits(my_time->year,100);
 			break;
+		case ADDR_SECS_SLEEP:
+			if (my_time->seconds_sleep_x4 < 99)
+			{
+				my_time->seconds_sleep_x4++;
+			}
+			else
+			{
+				my_time->seconds_sleep_x4 = 4;
+			}
+			value_to_write = my_time->seconds_sleep_x4;
+			break;
+		case ADDR_SECS_MODE:
+			if (my_time->seconds_change_mode < 99)
+			{
+				my_time->seconds_change_mode++;
+			}
+			else
+			{
+				my_time->seconds_change_mode = 2;
+			}
+			value_to_write = my_time->seconds_change_mode;
+			break;
 		default:
 			return;
 			break;
 	}
-	DS1307_write_byte(addr,value_to_write);
+	DS1307_write_byte(addr,value_to_write); // Save value in RTC NV memory.
 }
 
 // Update the number shown by nixies accordingly with the selected mode.
@@ -373,6 +405,18 @@ void update_nixies(my_time_t *my_time, display_mode current_mode)
 			PCF8574_write(PCF8574_2,dec2bcd(my_time->humid_decimal));
 			PCF8574_write(PCF8574_3,leds_on|(1<<RGB_LED_SYMB)|(1<<NIXIE_PERCENT));
 			break;
+		case SLEEP_TIME:
+			output_high(PORTB,NEON1);
+			PCF8574_write(PCF8574_1,0x1F);
+			PCF8574_write(PCF8574_2,dec2bcd(my_time->seconds_sleep_x4));
+			PCF8574_write(PCF8574_3,leds_on);
+			break;
+		case CHANGE_MODE_TIME:
+			output_high(PORTB,NEON1);
+			PCF8574_write(PCF8574_1,0x2F);
+			PCF8574_write(PCF8574_2,dec2bcd(my_time->seconds_change_mode));
+			PCF8574_write(PCF8574_3,leds_on);
+			break;
 		default:
 			//output_low(PORTB, LED_SYMB);
 			/* Your code here */
@@ -405,8 +449,13 @@ int main(void)
 	clock1.temp_digit = 0;
 	clock1.humid_decimal = 0;
 	clock1.humid_digit = 0;
-
+	clock1.seconds_sleep_x4 = 10; // This value will be multiplied by 4 (left shift by 2)
+	clock1.seconds_change_mode = 5;
+	
+	uint8_t seconds_sleep_x4 = 10;	// This value will be multiplied by 4 (left shift by 2)
+	uint8_t seconds_change_mode = 5;
 	uint8_t mode_change_seconds_counter = 0;
+	
 	display_mode modes_cycle[3] = {TEMP, HUMID, HOUR_MIN};
 	uint8_t mode_cycle_index = 0;
 	uint8_t radio_register = 0;
@@ -415,9 +464,12 @@ int main(void)
 	// Pin setup:
 	DDRB |= (1<<NEON1)|(1<<NEON2);	// Output pins of PortB
 	DDRC |= (1<<RED)|(1<<GREEN)|(1<<BLUE);	// Output pins of PortC
-	DDRD |= (1<<POWER_ON_PIN);
+	DDRD |= (1<<POWER_ON_PIN)|(1<<LED_PIN); // Output pins of PortD
 	
-	output_high(PORTD,POWER_ON_PIN);	// Turn on power control pin
+	//output_high(PORTD,POWER_ON_PIN);	// Turn on power control pin
+	
+	PORTD |= ((1<<POWER_ON_PIN)|(1<<LED_PIN));  // Turn on power control pin and off the led.
+	
 	unsigned char i, pwm;
 	pwm = PWMDEFAULT;
 	
@@ -426,13 +478,11 @@ int main(void)
 	{
 		compare[i] = pwm;           // set default PWM values
 		compbuff[i] = pwm;          // set default PWM values
-	}
-	
-	
+	}	
 	
 	// Timer 0 setup (used for software PWM):
 	TCCR0B = (1 << CS00);         // no prescaller (count to 0xFF). PWM freq = (Clock/256)/256. With 8MHz, PWM freq. is 122Hz.
-	TIMSK0 = (1 << TOIE0);         // enable overflow interrupt
+	TIMSK0 = (1 << TOIE0);        // enable overflow interrupt
 
 	// Timer 1 setup (temp use, update RGB values):
 	TCCR1B = (1<<CS11) | (1<<CS10) | (1<<WGM12);	// use CLK/64 prescale value, clear timer/counter on compareA match
@@ -452,6 +502,7 @@ int main(void)
 	
 	// Configuring DS1307:
 	DS1307_write_byte(CR,SQW_OUT_1Hz);
+	DS1307_read_config(&clock1);
 	
 	update_nixies(&clock1,current_mode);
 
@@ -538,7 +589,7 @@ int main(void)
 		{
 			// Check if it is to sleep (according to AVR LibC reference):
 			cli();
-			if (sleep_seconds_counter == SLEEP_SECONDS)
+			if (sleep_seconds_counter == (clock1.seconds_sleep_x4 << 2))
 			{
 				// It is time to sleep!
 				EIMSK &= ~((1<<INT1));	// Disable INT0 (fron NRF24L01).
@@ -571,7 +622,7 @@ int main(void)
 			sei();
 			// Check if it is to cycle the mode (at every multiple of MODE_CHANGE_SECONDS)
 			// while in no adjust mode.
-			if ((mode_change_seconds_counter == MODE_CHANGE_SECONDS) & (current_adjust == OFF)) 
+			if ((mode_change_seconds_counter == clock1.seconds_change_mode) & (current_adjust == OFF)) 
 			{
 				if (mode_cycle_index < 3)
 				{
@@ -612,7 +663,7 @@ int main(void)
 			{
 				case (1<<SW1):	// Key 1, view mode.
 					mode_change_seconds_counter = 0; // Reset seconds counter.
-                    if (current_mode < HUMID)
+                    if (current_mode < CHANGE_MODE_TIME)
                     {
 						current_mode++;
                     }
@@ -633,7 +684,7 @@ int main(void)
 						switch (current_mode)
 						{
 						case MIN_SEC:   // Seconds setting
-							leds_on = (1<<RGB_LED_MIN);	// Only RGB led from Seconds digists will be on.
+							leds_on = (1<<RGB_LED_MIN);	// Only RGB led from Seconds digits will be on.
 							adjust_addr = ADDR_SECS;
 							current_adjust++;       // Skip next digit setting.
 							break;
@@ -676,6 +727,16 @@ int main(void)
 							leds_on = (1<<RGB_LED_HOUR)|(1<<RGB_LED_MIN);
                             current_adjust++;       // Skip next digit setting.
                             break;
+						case SLEEP_TIME:
+							leds_on = (1<<RGB_LED_HOUR)|(1<<RGB_LED_MIN);
+							adjust_addr = ADDR_SECS_SLEEP;
+							current_adjust++;
+							break;
+						case CHANGE_MODE_TIME:
+							leds_on = (1<<RGB_LED_HOUR)|(1<<RGB_LED_MIN);
+							adjust_addr = ADDR_SECS_MODE;
+							current_adjust++;
+							break;
 						default:
 							// Do nothing, for now.
 							break;                                                          

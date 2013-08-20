@@ -41,6 +41,8 @@ typedef enum _mode
 	YEAR,
 	TEMP,
 	HUMID,
+	SLEEP_TIME,
+	CHANGE_MODE_TIME,
 } display_mode;
 
 // Enum that holds the current digits that are being set.
@@ -59,11 +61,19 @@ typedef struct
 	uint8_t weekday;	// week day 1 to 7
 	uint8_t day;	// 
 	uint8_t month;
-	uint8_t year;	// 0 to 99, BCD sapareted by nibble.
+	uint8_t year;	// 0 to 99, BCD separated by nibble.
 	uint8_t temp_digit;
 	uint8_t temp_decimal;
 	uint8_t humid_digit; 
-	uint8_t humid_decimal; 
+	uint8_t humid_decimal;
+	uint8_t seconds_sleep_x4;
+	uint8_t seconds_change_mode;
 } my_time_t;
+
+typedef struct  
+{
+	uint8_t seconds_sleep_x5;
+	uint8_t seconds_change_mode;
+} my_config_t;
 
 uint8_t calculate_hour_DS1307(uint8_t hours); // Calculate the digits from the hour, min and seconds, using the format of DS1307 RTC.
